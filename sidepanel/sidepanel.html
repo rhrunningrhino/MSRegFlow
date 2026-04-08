@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MSRegFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+      <h1>MSRegFlow</h1>
+    </div>
+    <div class="header-btns">
+      <div class="run-group">
+        <input type="number" id="input-run-count" class="run-count-input" value="1" min="1" max="50" title="Number of runs" data-i18n-title="titleRunCount" />
+        <button id="btn-auto-run" class="btn btn-success" title="Run all steps automatically" data-i18n-title="titleAutoRun">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span data-i18n="btnAuto">Auto</span>
+        </button>
+        <button id="btn-stop" class="btn btn-danger" title="Stop current flow" data-i18n-title="titleStop" disabled data-i18n="btnStop">Stop</button>
+      </div>
+      <button id="btn-reset" class="btn btn-ghost" title="Reset all steps" data-i18n-title="titleReset">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+        </svg>
+      </button>
+      <button id="btn-theme" class="theme-toggle" title="Toggle theme" data-i18n-title="titleTheme">
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <section id="data-section">
+    <div class="data-card">
+      <div class="data-row" id="row-oauth-provider">
+        <span class="data-label" data-i18n="labelOauthTarget">OAuth</span>
+        <select id="select-oauth-provider" class="data-select">
+          <option value="cpaauth" data-i18n="oauthProviderCpaAuth">CPA Auth</option>
+          <option value="sub2api" data-i18n="oauthProviderSub2api">Sub2API</option>
+        </select>
+      </div>
+      <div class="data-row" id="row-cpa-auth-url">
+        <span class="data-label" data-i18n="labelCpaAuth">CPA Auth</span>
+        <div class="data-inline">
+          <input type="password" id="input-vps-url" class="data-input" placeholder="http://ip:port/management.html#/oauth" data-i18n-placeholder="placeholderCpaAuth" />
+          <button id="btn-paste-vps-url" class="btn btn-outline btn-sm" type="button" data-i18n="btnPaste">Paste</button>
+        </div>
+      </div>
+      <div class="data-row" id="row-sub2api-base-url" style="display:none;">
+        <span class="data-label" data-i18n="labelSub2api">Sub2API</span>
+        <input type="text" id="input-sub2api-base-url" class="data-input" placeholder="https://your-sub2api-host" data-i18n-placeholder="placeholderSub2apiBaseUrl" />
+      </div>
+      <div class="data-row" id="row-sub2api-api-key" style="display:none;">
+        <span class="data-label" data-i18n="labelSub2apiApiKey">API Key</span>
+        <input type="password" id="input-sub2api-api-key" class="data-input" placeholder="x-api-key / Bearer token (optional)" data-i18n-placeholder="placeholderSub2apiApiKey" />
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelLanguage">Language</span>
+        <select id="select-language" class="data-select">
+          <option value="zh-CN">中文</option>
+          <option value="en-US">English</option>
+        </select>
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelAlias">Alias</span>
+        <span class="data-value" data-i18n="icloudAliasName">iCloud Hide My Email</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelCleanup">Cleanup</span>
+        <label class="option-toggle" for="checkbox-auto-delete-icloud">
+          <input type="checkbox" id="checkbox-auto-delete-icloud" />
+          <span data-i18n="cleanupAutoDelete">Delete iCloud alias after successful use</span>
+        </label>
+      </div>
+      <div class="data-row" id="row-mail-provider">
+        <span class="data-label" data-i18n="labelVerify">Verify</span>
+        <select id="select-mail-provider" class="data-select">
+          <option value="microsoft-manager" data-i18n="mailProviderMicrosoftManager">Microsoft Account Manager API</option>
+        </select>
+      </div>
+      <div class="data-row" id="row-inbucket-host" style="display:none;">
+        <span class="data-label" data-i18n="labelInbucket">Inbucket</span>
+        <input type="text" id="input-inbucket-host" class="data-input" placeholder="your-inbucket-host or https://your-inbucket-host" data-i18n-placeholder="placeholderInbucketHost" />
+      </div>
+      <div class="data-row" id="row-inbucket-mailbox" style="display:none;">
+        <span class="data-label" data-i18n="labelMailbox">Mailbox</span>
+        <input type="text" id="input-inbucket-mailbox" class="data-input" placeholder="e.g. zju2001" data-i18n-placeholder="placeholderInbucketMailbox" />
+      </div>
+      <div class="data-row" id="row-microsoft-manager-url" style="display:none;">
+        <span class="data-label" data-i18n="labelMicrosoftManager">MSMgr</span>
+        <input type="text" id="input-microsoft-manager-url" class="data-input" placeholder="https://your-manager.example.com" data-i18n-placeholder="placeholderMicrosoftManagerUrl" />
+      </div>
+      <div class="data-row" id="row-microsoft-manager-token" style="display:none;">
+        <span class="data-label" data-i18n="labelToken">Token</span>
+        <input type="password" id="input-microsoft-manager-token" class="data-input" placeholder="MAIL_API_TOKEN" data-i18n-placeholder="placeholderMicrosoftManagerToken" />
+      </div>
+      <div class="data-row" id="row-microsoft-manager-mode" style="display:none;">
+        <span class="data-label" data-i18n="labelMode">Mode</span>
+        <select id="select-microsoft-manager-mode" class="data-select">
+          <option value="graph" data-i18n="microsoftManagerModeGraph">Graph</option>
+          <option value="imap" data-i18n="microsoftManagerModeImap">IMAP</option>
+        </select>
+      </div>
+      <div class="data-row" id="row-microsoft-manager-keyword" style="display:none;">
+        <span class="data-label" data-i18n="labelKeyword">Filter</span>
+        <input type="text" id="input-microsoft-manager-keyword" class="data-input" placeholder="optional keyword" data-i18n-placeholder="placeholderMicrosoftManagerKeyword" />
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelEmail">Email</span>
+        <div class="data-inline">
+          <input type="text" id="input-email" class="data-input" placeholder="Use Auto to generate an iCloud alias, or paste manually" />
+          <button id="btn-fetch-email" class="btn btn-outline btn-sm" type="button" data-i18n="btnAuto">Auto</button>
+          <button id="btn-copy-email" class="btn btn-outline btn-sm" type="button" data-i18n="btnCopy">Copy</button>
+        </div>
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelPassword">Password</span>
+        <div class="data-inline">
+          <input type="password" id="input-password" class="data-input" placeholder="Leave blank to auto-generate" />
+          <button id="btn-toggle-password" class="btn btn-outline btn-sm" type="button">Show</button>
+          <button id="btn-copy-password" class="btn btn-outline btn-sm" type="button" data-i18n="btnCopy">Copy</button>
+        </div>
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelOauth">OAuth</span>
+        <span id="display-oauth-url" class="data-value mono truncate">Waiting...</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label" data-i18n="labelCallback">Callback</span>
+        <span id="display-localhost-url" class="data-value mono truncate">Waiting...</span>
+      </div>
+    </div>
+    <div id="status-bar" class="status-bar">
+      <div class="status-dot"></div>
+      <span id="display-status">Ready</span>
+    </div>
+    <div id="timing-bar" class="timing-bar">
+      <div class="timing-item">
+        <span class="timing-label" data-i18n="labelElapsed">计时</span>
+        <span id="display-elapsed" class="timing-value mono">--:--</span>
+      </div>
+      <div class="timing-item">
+        <span class="timing-label" data-i18n="labelAverageDuration">平均用时</span>
+        <span id="display-average-duration" class="timing-value mono">--:--</span>
+      </div>
+      <div class="timing-item">
+        <span class="timing-label" data-i18n="labelSuccessRate">成功率</span>
+        <span id="display-success-rate" class="timing-value mono">--</span>
+      </div>
+    </div>
+    <div id="auto-continue-bar" class="auto-continue-bar" style="display:none;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span id="auto-hint" class="auto-hint">Use Auto to generate an iCloud alias, or paste manually, then continue</span>
+      <button id="btn-auto-continue" class="btn btn-primary btn-sm" data-i18n="btnContinue">Continue</button>
+    </div>
+  </section>
+
+  <section id="icloud-section">
+    <div class="log-header">
+      <span class="section-label" data-i18n="sectionIcloud">iCloud</span>
+      <div class="icloud-actions">
+        <button id="btn-icloud-refresh" class="btn btn-ghost btn-xs" type="button" data-i18n="btnRefresh">Refresh</button>
+        <button id="btn-icloud-delete-used" class="btn btn-outline btn-xs" type="button" data-i18n="btnDeleteUsed">Delete Used</button>
+      </div>
+    </div>
+    <div class="icloud-card">
+      <div id="icloud-summary" class="icloud-summary">Load your Hide My Email aliases to manage them here.</div>
+      <div id="icloud-login-help" class="icloud-login-help" style="display:none;">
+        <div class="icloud-login-help-main">
+          <div id="icloud-login-help-title" class="icloud-login-help-title">iCloud sign-in required</div>
+          <div id="icloud-login-help-text" class="icloud-login-help-text">A new iCloud page has been opened. Complete sign-in there, then come back here.</div>
+        </div>
+        <button id="btn-icloud-login-done" class="btn btn-primary btn-xs" type="button" data-i18n="btnIcloudLoginDone">I've Signed In</button>
+      </div>
+      <div id="icloud-list" class="icloud-list"></div>
+    </div>
+  </section>
+
+  <section id="steps-section">
+    <div class="steps-header">
+      <span class="section-label" data-i18n="sectionWorkflow">Workflow</span>
+      <span id="steps-progress" class="steps-progress">0 / 10</span>
+    </div>
+    <div class="steps-list">
+      <div class="step-row" data-step="1">
+        <div class="step-indicator" data-step="1"><span class="step-num">1</span></div>
+        <button class="step-btn" data-step="1" data-i18n="step1">Get OAuth Link</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="1" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="1"></span>
+      </div>
+      <div class="step-row" data-step="2">
+        <div class="step-indicator" data-step="2"><span class="step-num">2</span></div>
+        <button class="step-btn" data-step="2" data-i18n="step2">Open Signup</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="2" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="2"></span>
+      </div>
+      <div class="step-row" data-step="3">
+        <div class="step-indicator" data-step="3"><span class="step-num">3</span></div>
+        <button class="step-btn" data-step="3" data-i18n="step3">Fill Email / Password</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="3" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="3"></span>
+      </div>
+      <div class="step-row" data-step="4">
+        <div class="step-indicator" data-step="4"><span class="step-num">4</span></div>
+        <button class="step-btn" data-step="4" data-i18n="step4">Get Signup Code</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="4" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="4"></span>
+      </div>
+      <div class="step-row" data-step="5">
+        <div class="step-indicator" data-step="5"><span class="step-num">5</span></div>
+        <button class="step-btn" data-step="5" data-i18n="step5">Fill Name / Birthday</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="5" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="5"></span>
+      </div>
+      <div class="step-row" data-step="6">
+        <div class="step-indicator" data-step="6"><span class="step-num">6</span></div>
+        <button class="step-btn" data-step="6" data-i18n="step6">Login via OAuth</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="6" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="6"></span>
+      </div>
+      <div class="step-row" data-step="7">
+        <div class="step-indicator" data-step="7"><span class="step-num">7</span></div>
+        <button class="step-btn" data-step="7" data-i18n="step7">Get Login Code</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="7" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="7"></span>
+      </div>
+      <div class="step-row" data-step="8">
+        <div class="step-indicator" data-step="8"><span class="step-num">8</span></div>
+        <button class="step-btn" data-step="8" data-i18n="step8">OAuth Auto Confirm</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="8" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="8"></span>
+      </div>
+      <div class="step-row" data-step="9">
+        <div class="step-indicator" data-step="9"><span class="step-num">9</span></div>
+        <button class="step-btn" data-step="9" data-i18n="step9">Callback Verify / Import</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="9" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="9"></span>
+      </div>
+      <div class="step-row" data-step="10">
+        <div class="step-indicator" data-step="10"><span class="step-num">10</span></div>
+        <button class="step-btn" data-step="10" data-i18n="step10">Cleanup Source Email</button>
+        <button class="step-skip-btn btn btn-ghost btn-xs" data-step="10" type="button" title="Skip this step" data-i18n-title="titleSkipStep" data-i18n="btnSkip">Skip</button>
+        <span class="step-status" data-step="10"></span>
+      </div>
+    </div>
+  </section>
+
+  <section id="log-section">
+    <div class="log-header">
+      <span class="section-label" data-i18n="sectionConsole">Console</span>
+      <button id="btn-clear-log" class="btn btn-ghost btn-xs" title="Clear log" data-i18n-title="titleClearLog" data-i18n="btnClear">Clear</button>
+    </div>
+    <div id="log-area"></div>
+  </section>
+
+  <div id="toast-container"></div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
