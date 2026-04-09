@@ -15,6 +15,9 @@ const displayOauthUrl = document.getElementById('display-oauth-url');
 const displayLocalhostUrl = document.getElementById('display-localhost-url');
 const displayStatus = document.getElementById('display-status');
 const statusBar = document.getElementById('status-bar');
+const appTitle = document.getElementById('app-title');
+const btnVersion = document.getElementById('btn-version');
+const displayVersion = document.getElementById('display-version');
 const displayElapsed = document.getElementById('display-elapsed');
 const displayAverageDuration = document.getElementById('display-average-duration');
 const displaySuccessRate = document.getElementById('display-success-rate');
@@ -77,6 +80,16 @@ let activeRunKey = '';
 const completedRunDurationsMs = [];
 const finishedRunKeys = new Set();
 const successfulRunKeys = new Set();
+const manifestInfo = chrome.runtime.getManifest();
+const releaseRepo = 'Msg-Lbo/MSRegFlow';
+const currentManifestVersion = normalizeVersionValue(manifestInfo.version || '0.0.0');
+const currentManifestVersionLabel = formatVersionLabel(currentManifestVersion);
+let latestReleaseVersion = '';
+let latestReleaseUrl = `https://github.com/${releaseRepo}/releases`;
+let hasNewRelease = false;
+let isVersionCheckFinished = false;
+let versionCheckInFlight = false;
+let hasShownNewReleaseToast = false;
 
 function normalizeMailProviderValue(rawValue) {
   void rawValue;
@@ -107,6 +120,7 @@ const I18N = {
     titleStop: '停止当前流程',
     titleReset: '重置全部步骤',
     titleTheme: '切换主题',
+    titleVersionBadge: '点击查看版本更新',
     titleSkipStep: '跳过这一步',
     titleClearLog: '清空日志',
     labelCpaAuth: 'CPA Auth',
@@ -230,6 +244,11 @@ const I18N = {
     autoRunRunning: ({ runLabel }) => `运行中${runLabel}`,
     autoRunPaused: ({ runLabel }) => `已暂停${runLabel}`,
     autoRunInterrupted: ({ runLabel }) => `已中断${runLabel}`,
+    versionChecking: '版本检查中...',
+    versionTooltipLatest: ({ version }) => `当前已是最新版本 ${version}`,
+    versionTooltipUpdateAvailable: ({ current, latest }) => `发现新版本 ${latest}（当前 ${current}），点击查看`,
+    versionTooltipCheckFailed: '版本检查失败，点击查看 Releases',
+    newVersionFound: ({ latest }) => `发现新版本 ${latest}，点击标题旁版本号查看`,
   },
   'en-US': {
     titleRunCount: 'Number of runs',
@@ -239,6 +258,7 @@ const I18N = {
     titleStop: 'Stop current flow',
     titleReset: 'Reset all steps',
     titleTheme: 'Toggle theme',
+    titleVersionBadge: 'Click to view version updates',
     titleSkipStep: 'Skip this step',
     titleClearLog: 'Clear log',
     labelCpaAuth: 'CPA Auth',
@@ -362,6 +382,11 @@ const I18N = {
     autoRunRunning: ({ runLabel }) => `Running${runLabel}`,
     autoRunPaused: ({ runLabel }) => `Paused${runLabel}`,
     autoRunInterrupted: ({ runLabel }) => `Interrupted${runLabel}`,
+    versionChecking: 'Checking version...',
+    versionTooltipLatest: ({ version }) => `You are on the latest version ${version}`,
+    versionTooltipUpdateAvailable: ({ current, latest }) => `New version ${latest} available (current ${current}), click to view`,
+    versionTooltipCheckFailed: 'Version check failed, click to view releases',
+    newVersionFound: ({ latest }) => `New version ${latest} found. Click the header version badge to view`,
   },
 };
 
@@ -375,6 +400,153 @@ function t(key, vars = {}) {
 
 function setAutoRunButton(label) {
   btnAutoRun.innerHTML = `${AUTO_BUTTON_ICON} ${label}`;
+}
+
+function normalizeVersionValue(rawValue) {
+  return String(rawValue || '')
+    .trim()
+    .replace(/^refs\/tags\//i, '')
+    .replace(/^v/i, '');
+}
+
+function formatVersionLabel(versionValue) {
+  const normalized = normalizeVersionValue(versionValue);
+  return normalized ? `v${normalized}` : 'v0.0.0';
+}
+
+function parseVersionParts(versionValue) {
+  const normalized = normalizeVersionValue(versionValue);
+  if (!normalized) return [];
+
+  return normalized
+    .split('.')
+    .map(part => {
+      const matched = String(part || '').match(/\d+/);
+      return matched ? Number(matched[0]) : 0;
+    });
+}
+
+function compareVersionValues(leftVersion, rightVersion) {
+  const left = parseVersionParts(leftVersion);
+  const right = parseVersionParts(rightVersion);
+  const length = Math.max(left.length, right.length);
+
+  for (let index = 0; index < length; index++) {
+    const leftPart = Number(left[index] || 0);
+    const rightPart = Number(right[index] || 0);
+    if (leftPart > rightPart) return 1;
+    if (leftPart < rightPart) return -1;
+  }
+
+  return 0;
+}
+
+function getVersionBadgeTitle() {
+  if (!isVersionCheckFinished) {
+    return t('versionChecking');
+  }
+
+  if (hasNewRelease) {
+    return t('versionTooltipUpdateAvailable', {
+      current: currentManifestVersionLabel,
+      latest: formatVersionLabel(latestReleaseVersion),
+    });
+  }
+
+  if (latestReleaseVersion) {
+    return t('versionTooltipLatest', {
+      version: formatVersionLabel(latestReleaseVersion),
+    });
+  }
+
+  return t('versionTooltipCheckFailed');
+}
+
+function renderVersionBadge() {
+  if (appTitle) {
+    appTitle.textContent = String(manifestInfo.name || 'MSRegFlow');
+  }
+
+  if (displayVersion) {
+    displayVersion.textContent = currentManifestVersionLabel;
+  }
+
+  if (!btnVersion) return;
+
+  btnVersion.classList.toggle('has-update', hasNewRelease);
+  const title = getVersionBadgeTitle();
+  btnVersion.title = title;
+  btnVersion.setAttribute('aria-label', title);
+}
+
+async function checkLatestReleaseVersion() {
+  if (versionCheckInFlight) return;
+
+  versionCheckInFlight = true;
+  isVersionCheckFinished = false;
+  renderVersionBadge();
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${releaseRepo}/releases/latest`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const latestTag = normalizeVersionValue(payload?.tag_name || '');
+    const latestUrl = String(payload?.html_url || '').trim();
+
+    latestReleaseVersion = latestTag;
+    if (latestUrl) {
+      latestReleaseUrl = latestUrl;
+    }
+
+    hasNewRelease = latestTag
+      ? compareVersionValues(latestTag, currentManifestVersion) > 0
+      : false;
+
+    isVersionCheckFinished = true;
+    renderVersionBadge();
+
+    if (hasNewRelease && !hasShownNewReleaseToast) {
+      hasShownNewReleaseToast = true;
+      showToast(t('newVersionFound', { latest: formatVersionLabel(latestTag) }), 'warn', 4200);
+    }
+  } catch (err) {
+    latestReleaseVersion = '';
+    hasNewRelease = false;
+    isVersionCheckFinished = true;
+    renderVersionBadge();
+    console.warn('Version check failed:', err);
+  } finally {
+    versionCheckInFlight = false;
+  }
+}
+
+function getVersionOpenUrl() {
+  const currentReleaseUrl = `https://github.com/${releaseRepo}/releases/tag/${currentManifestVersion}`;
+  if (hasNewRelease && latestReleaseUrl) {
+    return latestReleaseUrl;
+  }
+  if (latestReleaseVersion) {
+    return currentReleaseUrl;
+  }
+  return latestReleaseUrl || currentReleaseUrl;
+}
+
+async function openVersionPage() {
+  const url = getVersionOpenUrl();
+  try {
+    await chrome.tabs.create({ url, active: true });
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
 }
 
 function formatDuration(ms) {
@@ -591,6 +763,7 @@ function applyLanguage(language) {
   updateEmailSourceUI();
   syncPasswordToggleLabel();
   updateProgressCounter();
+  renderVersionBadge();
   if (lastKnownState) {
     updateStatusDisplay(lastKnownState);
   } else {
@@ -1252,6 +1425,13 @@ btnTogglePassword.addEventListener('click', () => {
   syncPasswordToggleLabel();
 });
 
+btnVersion.addEventListener('click', async () => {
+  if (!isVersionCheckFinished && !versionCheckInFlight) {
+    await checkLatestReleaseVersion();
+  }
+  await openVersionPage();
+});
+
 btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
   await chrome.runtime.sendMessage({ type: 'STOP_FLOW', source: 'sidepanel', payload: {} });
@@ -1628,10 +1808,12 @@ btnTheme.addEventListener('click', () => {
 
 initTheme();
 applyLanguage(currentLanguage);
+renderVersionBadge();
 restoreState().then(() => {
   syncPasswordToggleLabel();
   updateButtonStates();
   if (shouldUseIcloudUi()) {
     refreshIcloudAliases({ silent: true });
   }
+  checkLatestReleaseVersion().catch(() => {});
 });

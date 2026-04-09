@@ -695,6 +695,10 @@ function normalizeMicrosoftManagerAccount(raw) {
   };
 }
 
+function isMicrosoftManagerRegisteredRemark(remark) {
+  return String(remark || '').trim() === '已注册';
+}
+
 async function listMicrosoftManagerAccounts(state, options = {}) {
   const keyword = String(options.keyword ?? state.microsoftManagerKeyword ?? '').trim();
   const payload = await requestMicrosoftManagerApi(state, '/api/open/accounts', {
@@ -770,13 +774,16 @@ async function updateMicrosoftManagerAccountRemarkByEmail(state, email, remark) 
 function pickMicrosoftManagerAccount(accounts, state) {
   if (!accounts.length) return null;
 
+  const availableAccounts = accounts.filter(account => !isMicrosoftManagerRegisteredRemark(account?.remark));
+  if (!availableAccounts.length) return null;
+
   const usedEmails = new Set(
     (state.accounts || [])
       .map(account => String(account?.email || '').trim())
       .filter(Boolean)
   );
 
-  return accounts.find(account => !usedEmails.has(account.account)) || accounts[0];
+  return availableAccounts.find(account => !usedEmails.has(account.account)) || availableAccounts[0];
 }
 
 async function fetchMicrosoftManagerEmail(options = {}) {
@@ -789,8 +796,12 @@ async function fetchMicrosoftManagerEmail(options = {}) {
     throw new Error('No account found in Microsoft Account Manager.');
   }
 
+  const blockedByRemarkCount = accounts.filter(account => isMicrosoftManagerRegisteredRemark(account?.remark)).length;
   const selected = pickMicrosoftManagerAccount(accounts, state);
   if (!selected?.account) {
+    if (blockedByRemarkCount > 0 && blockedByRemarkCount === accounts.length) {
+      throw new Error('No available account found. All Microsoft accounts are marked as 已注册.');
+    }
     throw new Error('No valid account email found in Microsoft Account Manager.');
   }
 

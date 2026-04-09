@@ -34,9 +34,16 @@
 
 ## 版本与打包
 
-- 当前扩展版本：`1.0.1`（见 `manifest.json`）
+- 当前扩展版本：`1.0.2`（见 `manifest.json`）
 - 每次推送新的 Git tag 后，GitHub Actions 会自动打包生成：`MSRegFlow-<tag>.zip`
+- Release 会优先使用 **tag 注释内容** 作为中文更新日志
 - 自动打包工作流位置：`.github/workflows/package-on-tag.yml`
+
+建议使用带中文注释的 tag：
+
+```bash
+git tag -a 1.0.2 -m "Release 1.0.2" -m "- 新增：xxx" -m "- 修复：yyy"
+```
 
 本地手动打包（按指定 tag）：
 
@@ -123,6 +130,7 @@ http(s)://<your-host>/management.html#/oauth
 ### 3) Email
 
 - 点击 `Auto`：从 account manager 自动获取账号邮箱并填入
+- 若账号备注为 `已注册`，会自动跳过并选择下一个账号
 - 或手动粘贴邮箱
 
 ### 4) Password

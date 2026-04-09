@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MSRegFlow",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Automates OAuth registration workflow with Microsoft Account Manager API",
   "permissions": [
     "sidePanel",

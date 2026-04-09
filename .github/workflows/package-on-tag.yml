@@ -36,8 +36,31 @@ jobs:
           name: ${{ steps.package.outputs.zip_name }}
           path: ${{ steps.package.outputs.zip_path }}
 
+      - name: Build Chinese release notes from tag
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_NAME="${GITHUB_REF_NAME}"
+          NOTES_FILE="dist/release-notes-${TAG_NAME}.md"
+          TAG_MESSAGE="$(git for-each-ref "refs/tags/${TAG_NAME}" --format='%(contents)')"
+
+          CLEANED_MESSAGE="$(printf '%s\n' "${TAG_MESSAGE}" | sed -e '/^Release[[:space:]]\+/Id' -e '/^$/N;/^\n$/D')"
+
+          if [ -z "$(printf '%s' "${CLEANED_MESSAGE}" | tr -d '[:space:]')" ]; then
+            CLEANED_MESSAGE="- 发布 ${TAG_NAME}"
+          fi
+
+          {
+            echo "## 更新日志"
+            echo
+            printf '%s\n' "${CLEANED_MESSAGE}"
+          } > "${NOTES_FILE}"
+
+          echo "notes_path=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+
       - name: Attach zip to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.package.outputs.zip_path }}
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.notes_path }}
