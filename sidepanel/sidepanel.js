@@ -48,6 +48,10 @@ const rowSub2apiBaseUrl = document.getElementById('row-sub2api-base-url');
 const inputSub2apiBaseUrl = document.getElementById('input-sub2api-base-url');
 const rowSub2apiApiKey = document.getElementById('row-sub2api-api-key');
 const inputSub2apiApiKey = document.getElementById('input-sub2api-api-key');
+const rowSub2apiGroups = document.getElementById('row-sub2api-groups');
+const btnSub2apiLoadGroups = document.getElementById('btn-sub2api-load-groups');
+const sub2apiGroupsStatus = document.getElementById('sub2api-groups-status');
+const sub2apiGroupsList = document.getElementById('sub2api-groups-list');
 const selectMailProvider = document.getElementById('select-mail-provider');
 const rowMicrosoftManagerUrl = document.getElementById('row-microsoft-manager-url');
 const inputMicrosoftManagerUrl = document.getElementById('input-microsoft-manager-url');
@@ -79,6 +83,8 @@ let hasNewRelease = false;
 let isVersionCheckFinished = false;
 let versionCheckInFlight = false;
 let hasShownNewReleaseToast = false;
+let sub2apiGroupOptions = [];
+const selectedSub2apiGroupIds = new Set();
 
 function normalizeMailProviderValue(rawValue) {
   void rawValue;
@@ -125,6 +131,7 @@ const I18N = {
     labelCpaManagementKey: 'CPA Key',
     labelSub2api: 'Sub2API',
     labelSub2apiApiKey: 'API Key',
+    labelSub2apiGroups: '分组',
     labelEmail: '邮箱',
     labelPassword: '密码',
     labelOauth: 'OAuth',
@@ -155,6 +162,7 @@ const I18N = {
     btnContinue: '继续',
     btnCopy: '复制',
     btnPaste: '粘贴',
+    btnLoadGroups: '加载分组',
     btnClear: '清空',
     btnSkip: '跳过',
     btnShow: '显示',
@@ -197,6 +205,11 @@ const I18N = {
     autoRunRunning: ({ runLabel }) => `运行中${runLabel}`,
     autoRunPaused: ({ runLabel }) => `已暂停${runLabel}`,
     autoRunInterrupted: ({ runLabel }) => `已中断${runLabel}`,
+    sub2apiGroupsNotLoaded: '未加载',
+    sub2apiGroupsLoading: '正在加载分组...',
+    sub2apiGroupsLoaded: ({ total, selected }) => `共 ${total} 个分组，已选 ${selected} 个`,
+    sub2apiGroupsEmpty: '未获取到可选分组',
+    sub2apiGroupsLoadFailed: ({ message }) => `分组加载失败：${message}`,
     versionChecking: '版本检查中...',
     versionTooltipLatest: ({ version }) => `当前已是最新版本 ${version}`,
     versionTooltipUpdateAvailable: ({ current, latest }) => `发现新版本 ${latest}（当前 ${current}），点击查看`,
@@ -227,6 +240,7 @@ const I18N = {
     labelCpaManagementKey: 'CPA Key',
     labelSub2api: 'Sub2API',
     labelSub2apiApiKey: 'API Key',
+    labelSub2apiGroups: 'Groups',
     labelEmail: 'Email',
     labelPassword: 'Password',
     labelOauth: 'OAuth',
@@ -257,6 +271,7 @@ const I18N = {
     btnContinue: 'Continue',
     btnCopy: 'Copy',
     btnPaste: 'Paste',
+    btnLoadGroups: 'Load Groups',
     btnClear: 'Clear',
     btnSkip: 'Skip',
     btnShow: 'Show',
@@ -299,6 +314,11 @@ const I18N = {
     autoRunRunning: ({ runLabel }) => `Running${runLabel}`,
     autoRunPaused: ({ runLabel }) => `Paused${runLabel}`,
     autoRunInterrupted: ({ runLabel }) => `Interrupted${runLabel}`,
+    sub2apiGroupsNotLoaded: 'Not loaded',
+    sub2apiGroupsLoading: 'Loading groups...',
+    sub2apiGroupsLoaded: ({ total, selected }) => `${total} groups, ${selected} selected`,
+    sub2apiGroupsEmpty: 'No groups available',
+    sub2apiGroupsLoadFailed: ({ message }) => `Failed to load groups: ${message}`,
     versionChecking: 'Checking version...',
     versionTooltipLatest: ({ version }) => `You are on the latest version ${version}`,
     versionTooltipUpdateAvailable: ({ current, latest }) => `New version ${latest} available (current ${current}), click to view`,
@@ -612,10 +632,6 @@ function getCopyLabel(kind) {
   return 'value';
 }
 
-function getEmailSourceLabel() {
-  return t('microsoftManagerEmailName');
-}
-
 function getFetchEmailTitle() {
   return t('titleFetchEmailMicrosoftManager');
 }
@@ -638,6 +654,102 @@ function updateOauthProviderUI() {
   rowCpaAuthKey.style.display = useSub2api ? 'none' : '';
   rowSub2apiBaseUrl.style.display = useSub2api ? '' : 'none';
   rowSub2apiApiKey.style.display = useSub2api ? '' : 'none';
+  rowSub2apiGroups.style.display = useSub2api ? '' : 'none';
+}
+
+function normalizeSub2apiGroupIds(rawValue) {
+  if (!Array.isArray(rawValue)) return [];
+  const unique = new Set();
+  for (const item of rawValue) {
+    const normalized = String(item ?? '').trim();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return [...unique];
+}
+
+function setSub2apiGroupStatus(messageKey, vars = {}) {
+  if (!sub2apiGroupsStatus) return;
+  sub2apiGroupsStatus.textContent = t(messageKey, vars);
+}
+
+async function persistSelectedSub2apiGroupIds() {
+  const selected = [...selectedSub2apiGroupIds];
+  await chrome.runtime.sendMessage({
+    type: 'SAVE_SETTING',
+    source: 'sidepanel',
+    payload: { sub2apiSelectedGroupIds: selected },
+  });
+}
+
+function updateSub2apiGroupStatusSummary() {
+  setSub2apiGroupStatus('sub2apiGroupsLoaded', {
+    total: sub2apiGroupOptions.length,
+    selected: selectedSub2apiGroupIds.size,
+  });
+}
+
+function renderSub2apiGroups() {
+  if (!sub2apiGroupsList) return;
+  sub2apiGroupsList.innerHTML = '';
+
+  if (!sub2apiGroupOptions.length) {
+    sub2apiGroupsList.innerHTML = `<div class="sub2api-groups-empty">${escapeHtml(t('sub2apiGroupsEmpty'))}</div>`;
+    if (isSub2apiOauthProviderSelected()) {
+      setSub2apiGroupStatus('sub2apiGroupsNotLoaded');
+    }
+    return;
+  }
+
+  for (const group of sub2apiGroupOptions) {
+    const item = document.createElement('label');
+    item.className = 'sub2api-group-item';
+    const checked = selectedSub2apiGroupIds.has(group.id) ? 'checked' : '';
+    item.innerHTML = `
+      <input type="checkbox" data-group-id="${escapeHtml(group.id)}" ${checked} />
+      <span class="sub2api-group-name">${escapeHtml(group.name)}</span>
+      <span class="sub2api-group-id">#${escapeHtml(group.id)}</span>
+    `;
+
+    const checkbox = item.querySelector('input[type="checkbox"]');
+    checkbox.addEventListener('change', async () => {
+      if (checkbox.checked) selectedSub2apiGroupIds.add(group.id);
+      else selectedSub2apiGroupIds.delete(group.id);
+      updateSub2apiGroupStatusSummary();
+      await persistSelectedSub2apiGroupIds();
+    });
+
+    sub2apiGroupsList.appendChild(item);
+  }
+
+  updateSub2apiGroupStatusSummary();
+}
+
+async function loadSub2apiGroups() {
+  if (!isSub2apiOauthProviderSelected()) return;
+  if (!String(inputSub2apiBaseUrl.value || '').trim()) {
+    showToast(t('placeholderSub2apiBaseUrl'), 'warn', 2500);
+    return;
+  }
+
+  btnSub2apiLoadGroups.disabled = true;
+  setSub2apiGroupStatus('sub2apiGroupsLoading');
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'FETCH_SUB2API_GROUPS',
+      source: 'sidepanel',
+      payload: {},
+    });
+    if (response?.error) throw new Error(response.error);
+
+    sub2apiGroupOptions = Array.isArray(response?.groups) ? response.groups : [];
+    renderSub2apiGroups();
+  } catch (err) {
+    setSub2apiGroupStatus('sub2apiGroupsLoadFailed', { message: err.message || err });
+    showToast(t('sub2apiGroupsLoadFailed', { message: err.message || err }), 'error');
+  } finally {
+    btnSub2apiLoadGroups.disabled = false;
+  }
 }
 
 function applyLanguage(language) {
@@ -679,6 +791,7 @@ function applyLanguage(language) {
   } else {
     displayStatus.textContent = t('statusReady');
   }
+  renderSub2apiGroups();
   renderRunMetrics();
 }
 
@@ -782,6 +895,10 @@ async function restoreState() {
     if (state.sub2apiAdminApiKey) {
       inputSub2apiApiKey.value = state.sub2apiAdminApiKey;
     }
+    selectedSub2apiGroupIds.clear();
+    for (const groupId of normalizeSub2apiGroupIds(state.sub2apiSelectedGroupIds)) {
+      selectedSub2apiGroupIds.add(groupId);
+    }
     checkboxDeleteBlockedAccount.checked = Boolean(state.deleteAbusedMicrosoftAccount);
     if (state.language) {
       selectLanguage.value = state.language;
@@ -822,6 +939,7 @@ async function restoreState() {
     updateOauthProviderUI();
     updateMailProviderUI();
     updateEmailSourceUI();
+    renderSub2apiGroups();
 
     if (state.autoRunPausedPhase === 'waiting_email') {
       autoContinueBar.dataset.reason = 'waiting_email';
@@ -874,6 +992,7 @@ async function syncRuntimeSettingsBeforeExecution() {
       cpaManagementKey: inputCpaManagementKey.value.trim(),
       sub2apiBaseUrl: inputSub2apiBaseUrl.value.trim(),
       sub2apiAdminApiKey: inputSub2apiApiKey.value.trim(),
+      sub2apiSelectedGroupIds: [...selectedSub2apiGroupIds],
       deleteAbusedMicrosoftAccount: checkboxDeleteBlockedAccount.checked,
       customPassword: inputPassword.value,
       mailProvider: normalizeMailProviderValue(selectMailProvider.value),
@@ -1240,6 +1359,7 @@ inputCpaManagementKey.addEventListener('change', async () => {
 
 selectOauthProvider.addEventListener('change', async () => {
   updateOauthProviderUI();
+  renderSub2apiGroups();
   await chrome.runtime.sendMessage({
     type: 'SAVE_SETTING',
     source: 'sidepanel',
@@ -1248,6 +1368,8 @@ selectOauthProvider.addEventListener('change', async () => {
 });
 
 inputSub2apiBaseUrl.addEventListener('change', async () => {
+  sub2apiGroupOptions = [];
+  renderSub2apiGroups();
   await chrome.runtime.sendMessage({
     type: 'SAVE_SETTING',
     source: 'sidepanel',
@@ -1256,11 +1378,17 @@ inputSub2apiBaseUrl.addEventListener('change', async () => {
 });
 
 inputSub2apiApiKey.addEventListener('change', async () => {
+  sub2apiGroupOptions = [];
+  renderSub2apiGroups();
   await chrome.runtime.sendMessage({
     type: 'SAVE_SETTING',
     source: 'sidepanel',
     payload: { sub2apiAdminApiKey: inputSub2apiApiKey.value.trim() },
   });
+});
+
+btnSub2apiLoadGroups.addEventListener('click', async () => {
+  await loadSub2apiGroups();
 });
 
 inputPassword.addEventListener('change', async () => {

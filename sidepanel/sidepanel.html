@@ -74,6 +74,16 @@
         <span class="data-label" data-i18n="labelSub2apiApiKey">API Key</span>
         <input type="password" id="input-sub2api-api-key" class="data-input" placeholder="x-api-key / Bearer token (optional)" data-i18n-placeholder="placeholderSub2apiApiKey" />
       </div>
+      <div class="data-row" id="row-sub2api-groups" style="display:none;">
+        <span class="data-label" data-i18n="labelSub2apiGroups">分组</span>
+        <div class="sub2api-groups-panel">
+          <div class="sub2api-groups-actions">
+            <button id="btn-sub2api-load-groups" class="btn btn-outline btn-sm" type="button" data-i18n="btnLoadGroups">加载分组</button>
+            <span id="sub2api-groups-status" class="sub2api-groups-status" data-i18n="sub2apiGroupsNotLoaded">未加载</span>
+          </div>
+          <div id="sub2api-groups-list" class="sub2api-groups-list"></div>
+        </div>
+      </div>
       <div class="data-row">
         <span class="data-label" data-i18n="labelLanguage">Language</span>
         <select id="select-language" class="data-select">

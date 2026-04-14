@@ -8,6 +8,12 @@ const HUMAN_STEP_DELAY_MIN = 250;
 const HUMAN_STEP_DELAY_MAX = 900;
 const TOTAL_STEPS = 7;
 const AUTO_RUN_STEP_SEQUENCE = [1, 2, 3, 4, 5, 6, 7];
+const SUB2API_POST_IMPORT_DEFAULTS = Object.freeze({
+  maxConcurrency: 10,
+  loadFactor: 10,
+  priority: 1,
+  billingMultiplier: 1,
+});
 
 initializeSessionStorageAccess().catch(() => {});
 bootstrapPersistentSettings().catch((err) => {
@@ -47,6 +53,7 @@ const DEFAULT_STATE = {
   sub2apiAdminApiKey: '',
   sub2apiSessionId: null,
   sub2apiRuntimeCredential: '',
+  sub2apiSelectedGroupIds: [],
   customPassword: '',
   mailProvider: 'microsoft-manager',
   microsoftManagerUrl: '',
@@ -64,6 +71,7 @@ const PERSISTENT_SETTING_KEYS = [
   'cpaManagementKey',
   'sub2apiBaseUrl',
   'sub2apiAdminApiKey',
+  'sub2apiSelectedGroupIds',
   'deleteAbusedMicrosoftAccount',
   'customPassword',
   'mailProvider',
@@ -82,6 +90,7 @@ function normalizePersistentSettings(raw = {}) {
     cpaManagementKey: String(raw.cpaManagementKey || ''),
     sub2apiBaseUrl: String(raw.sub2apiBaseUrl || ''),
     sub2apiAdminApiKey: String(raw.sub2apiAdminApiKey || ''),
+    sub2apiSelectedGroupIds: normalizeSub2apiGroupIds(raw.sub2apiSelectedGroupIds),
     deleteAbusedMicrosoftAccount: Boolean(raw.deleteAbusedMicrosoftAccount),
     customPassword: String(raw.customPassword || ''),
     mailProvider: normalizeMailProvider(raw.mailProvider || DEFAULT_STATE.mailProvider),
@@ -148,7 +157,19 @@ async function getState() {
     oauthProvider: normalizeOauthProvider(merged.oauthProvider),
     mailProvider: normalizeMailProvider(merged.mailProvider),
     microsoftManagerMode: normalizeMicrosoftManagerMode(merged.microsoftManagerMode),
+    sub2apiSelectedGroupIds: normalizeSub2apiGroupIds(merged.sub2apiSelectedGroupIds),
   };
+}
+
+function normalizeSub2apiGroupIds(rawValue) {
+  if (!Array.isArray(rawValue)) return [];
+  const unique = new Set();
+  for (const item of rawValue) {
+    const normalized = String(item ?? '').trim();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return [...unique];
 }
 
 function normalizeOauthProvider(rawValue) {
@@ -1509,6 +1530,9 @@ async function handleMessage(message, sender) {
         updates.sub2apiAdminApiKey = message.payload.sub2apiAdminApiKey;
         updates.sub2apiRuntimeCredential = '';
       }
+      if (message.payload.sub2apiSelectedGroupIds !== undefined) {
+        updates.sub2apiSelectedGroupIds = normalizeSub2apiGroupIds(message.payload.sub2apiSelectedGroupIds);
+      }
       if (message.payload.deleteAbusedMicrosoftAccount !== undefined) updates.deleteAbusedMicrosoftAccount = Boolean(message.payload.deleteAbusedMicrosoftAccount);
       if (message.payload.customPassword !== undefined) updates.customPassword = message.payload.customPassword;
       if (message.payload.mailProvider !== undefined) updates.mailProvider = normalizeMailProvider(message.payload.mailProvider);
@@ -1532,6 +1556,12 @@ async function handleMessage(message, sender) {
       clearStopRequest();
       const email = await fetchConfiguredEmail(message.payload || {});
       return { ok: true, email };
+    }
+
+    case 'FETCH_SUB2API_GROUPS': {
+      clearStopRequest();
+      const groups = await fetchSub2apiGroups();
+      return { ok: true, groups };
     }
 
     case 'STOP_FLOW': {
@@ -1948,6 +1978,7 @@ async function autoRunLoop(totalRuns, options = {}) {
         vpsUrl: prevState.vpsUrl,
         sub2apiBaseUrl: prevState.sub2apiBaseUrl,
         sub2apiAdminApiKey: prevState.sub2apiAdminApiKey,
+        sub2apiSelectedGroupIds: normalizeSub2apiGroupIds(prevState.sub2apiSelectedGroupIds),
         mailProvider: prevState.mailProvider,
         microsoftManagerUrl: prevState.microsoftManagerUrl,
         microsoftManagerToken: prevState.microsoftManagerToken,
@@ -2633,6 +2664,183 @@ async function requestSub2apiAdminApi(state, path, options = {}) {
   }
 }
 
+function normalizeSub2apiGroupOption(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const idNumber = Number(
+    raw.id
+    ?? raw.group_id
+    ?? raw.groupId
+    ?? raw.value
+    ?? raw.key
+    ?? 0
+  );
+  const id = Number.isFinite(idNumber) && idNumber > 0 ? String(Math.trunc(idNumber)) : '';
+
+  const name = String(
+    raw.name
+    ?? raw.group_name
+    ?? raw.groupName
+    ?? raw.title
+    ?? raw.label
+    ?? raw.display_name
+    ?? ''
+  ).trim();
+
+  if (!id) return null;
+  return {
+    id,
+    name: name || `Group ${id}`,
+  };
+}
+
+function collectSub2apiGroupOptions(node, output, depth = 0) {
+  if (!node || depth > 6) return;
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const normalized = normalizeSub2apiGroupOption(item);
+      if (normalized) {
+        output.push(normalized);
+        continue;
+      }
+      if (item && typeof item === 'object') {
+        collectSub2apiGroupOptions(item, output, depth + 1);
+      }
+    }
+    return;
+  }
+
+  if (typeof node !== 'object') return;
+
+  for (const value of Object.values(node)) {
+    if (!value || typeof value !== 'object') continue;
+    collectSub2apiGroupOptions(value, output, depth + 1);
+  }
+}
+
+function dedupeAndSortSub2apiGroupOptions(groups) {
+  const map = new Map();
+  for (const group of groups) {
+    if (!group?.id) continue;
+    map.set(group.id, {
+      id: String(group.id),
+      name: String(group.name || `Group ${group.id}`),
+    });
+  }
+
+  return [...map.values()].sort((left, right) => {
+    const leftName = String(left.name || '').toLowerCase();
+    const rightName = String(right.name || '').toLowerCase();
+    if (leftName === rightName) return String(left.id).localeCompare(String(right.id));
+    return leftName.localeCompare(rightName);
+  });
+}
+
+async function fetchSub2apiGroups() {
+  const state = await getState();
+  let authCredential = String(state.sub2apiAdminApiKey || state.sub2apiRuntimeCredential || '').trim();
+  if (!authCredential) {
+    authCredential = await resolveSub2apiCredentialFromDashboard(state);
+  }
+
+  const candidates = [
+    { method: 'GET', path: 'admin/groups' },
+    { method: 'GET', path: 'admin/groups/all' },
+  ];
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      const data = await requestSub2apiAdminApi(state, candidate.path, {
+        method: candidate.method,
+        authCredential,
+        body: candidate.body,
+      });
+
+      const found = [];
+      collectSub2apiGroupOptions(data, found);
+      const groups = dedupeAndSortSub2apiGroupOptions(found);
+
+      if (!groups.length) {
+        continue;
+      }
+
+      await addLog(`Sub2API: Loaded ${groups.length} group options from ${candidate.path}`, 'ok');
+      return groups;
+    } catch (err) {
+      lastError = new Error(`${candidate.method} ${candidate.path}: ${getErrorMessage(err)}`);
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`Failed to load Sub2API groups: ${getErrorMessage(lastError)}`);
+  }
+  throw new Error('Failed to load Sub2API groups: no available group endpoint returned data.');
+}
+
+function buildSub2apiAccountSettingsPayload(state, accountId) {
+  const selectedGroupIds = normalizeSub2apiGroupIds(state.sub2apiSelectedGroupIds);
+  const numericGroupIds = selectedGroupIds
+    .map((item) => Number(item))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const payload = {
+    max_concurrency: SUB2API_POST_IMPORT_DEFAULTS.maxConcurrency,
+    concurrency: SUB2API_POST_IMPORT_DEFAULTS.maxConcurrency,
+    load_factor: SUB2API_POST_IMPORT_DEFAULTS.loadFactor,
+    priority: SUB2API_POST_IMPORT_DEFAULTS.priority,
+    rate_multiplier: SUB2API_POST_IMPORT_DEFAULTS.billingMultiplier,
+    id: accountId,
+  };
+
+  if (numericGroupIds.length > 0) {
+    payload.group_ids = numericGroupIds;
+  }
+
+  return payload;
+}
+
+async function applySub2apiPostImportSettings(state, accountId, authCredential) {
+  const payload = buildSub2apiAccountSettingsPayload(state, accountId);
+  const selectedGroups = Array.isArray(payload.group_ids) ? payload.group_ids.length : 0;
+
+  const candidates = [
+    { method: 'PUT', path: `admin/accounts/${accountId}` },
+    { method: 'POST', path: 'admin/accounts/bulk-update', body: {
+      account_ids: [accountId],
+      concurrency: SUB2API_POST_IMPORT_DEFAULTS.maxConcurrency,
+      load_factor: SUB2API_POST_IMPORT_DEFAULTS.loadFactor,
+      priority: SUB2API_POST_IMPORT_DEFAULTS.priority,
+      rate_multiplier: SUB2API_POST_IMPORT_DEFAULTS.billingMultiplier,
+      ...(Array.isArray(payload.group_ids) ? { group_ids: payload.group_ids } : {}),
+    } },
+  ];
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      await requestSub2apiAdminApi(state, candidate.path, {
+        method: candidate.method,
+        authCredential,
+        body: candidate.body || payload,
+      });
+
+      await addLog(
+        `Step 7: Sub2API account #${accountId} settings updated (并发 ${SUB2API_POST_IMPORT_DEFAULTS.maxConcurrency} / 负载 ${SUB2API_POST_IMPORT_DEFAULTS.loadFactor} / 优先级 ${SUB2API_POST_IMPORT_DEFAULTS.priority} / 计费倍率 ${SUB2API_POST_IMPORT_DEFAULTS.billingMultiplier}; 分组 ${selectedGroups} 个)`,
+        'ok'
+      );
+      return;
+    } catch (err) {
+      lastError = new Error(`${candidate.method} ${candidate.path}: ${getErrorMessage(err)}`);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+}
+
 function parseOAuthCallbackParams(callbackUrl) {
   const value = String(callbackUrl || '').trim();
   if (!value) {
@@ -3295,6 +3503,7 @@ async function executeStep7WithSub2api(state) {
       ...state,
       sub2apiRuntimeCredential: '',
     });
+    authCredential = fallbackCredential;
     created = await requestSub2apiAdminApi(state, 'admin/openai/create-from-oauth', {
       method: 'POST',
       authCredential: fallbackCredential,
@@ -3310,8 +3519,23 @@ async function executeStep7WithSub2api(state) {
 
   await setState({ sub2apiSessionId: null });
 
-  const accountId = Number(created?.id || 0);
+  const accountId = Number(
+    created?.id
+    || created?.account_id
+    || created?.accountId
+    || created?.account?.id
+    || 0
+  );
   const accountName = String(created?.name || state.email || '').trim();
+
+  if (accountId > 0) {
+    try {
+      await applySub2apiPostImportSettings(state, accountId, authCredential);
+    } catch (err) {
+      await addLog(`Step 7: Sub2API post-import settings update failed: ${getErrorMessage(err)}`, 'warn');
+    }
+  }
+
   if (accountId > 0) {
     await addLog(`Step 7: Sub2API account created #${accountId}${accountName ? ` (${accountName})` : ''}`, 'ok');
   } else {
